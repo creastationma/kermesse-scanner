@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kermesse – Redeem Coupon</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: sans-serif; background: #f9f9f9; min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 1.5rem 1rem; }
+  h2 { font-size: 22px; font-weight: 600; margin-bottom: 1.5rem; color: #1a1a1a; }
+  .card { background: #fff; border-radius: 16px; padding: 1.5rem; width: 100%; max-width: 420px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
+  label { font-size: 13px; color: #666; display: block; margin-bottom: 4px; margin-top: 12px; }
+  input { width: 100%; padding: 11px; font-size: 15px; border: 1px solid #ddd; border-radius: 10px; background: #fafafa; }
+  input:focus { outline: none; border-color: #999; background: #fff; }
+  .btn { width: 100%; padding: 14px; font-size: 15px; border-radius: 12px; border: none; cursor: pointer; margin-top: 10px; font-weight: 500; }
+  .btn-scan { background: #f0f0f0; color: #1a1a1a; border: 1px solid #ddd; display: flex; align-items: center; justify-content: center; gap: 8px; }
+  .btn-scan.active { background: #fff3cd; border-color: #f0ad4e; color: #7a5000; }
+  .btn-redeem { background: #1a1a1a; color: #fff; margin-top: 14px; }
+  .btn-redeem:disabled { opacity: 0.4; cursor: not-allowed; }
+  #scanner-wrap { display: none; margin-top: 12px; border-radius: 12px; overflow: hidden; position: relative; background: #000; }
+  #preview { width: 100%; display: block; max-height: 280px; object-fit: cover; }
+  #scan-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+  .scan-box { width: 180px; height: 180px; border: 3px solid #fff; border-radius: 14px; box-shadow: 0 0 0 9999px rgba(0,0,0,0.5); }
+  #scan-hint { text-align: center; font-size: 13px; color: #888; margin-top: 8px; display: none; }
+  .divider { display: flex; align-items: center; gap: 8px; margin: 14px 0 2px; color: #bbb; font-size: 13px; }
+  .divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: #eee; }
+  .result { margin-top: 1.2rem; padding: 1rem; border-radius: 12px; font-size: 15px; text-align: center; display: none; }
+  .ok { background: #e6f9ee; color: #1a6b3c; border: 1px solid #a3d9b1; }
+  .fail { background: #fdecea; color: #7b1f1a; border: 1px solid #f5aea9; }
+  .result-icon { font-size: 32px; margin-bottom: 6px; }
+  .result-msg { font-weight: 600; font-size: 16px; margin-bottom: 6px; }
+  .uses-bar { height: 10px; border-radius: 5px; background: #ddd; margin-top: 10px; }
+  .uses-fill { height: 10px; border-radius: 5px; background: #2ecc71; transition: width 0.4s; }
+  .uses-text { font-size: 13px; margin-top: 6px; color: inherit; opacity: 0.8; }
+  .spinner { display: inline-block; width: 18px; height: 18px; border: 2px solid #fff; border-top-color: transparent; border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: middle; margin-right: 6px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<h2>🎪 Kermesse 2025</h2>
+
+<div class="card">
+  <label>Your stand name</label>
+  <input id="stand" placeholder="e.g. Face painting" type="text">
+
+  <label style="margin-top:14px;">Scan student QR code</label>
+  <button class="btn btn-scan" id="scan-btn" onclick="toggleScanner()">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="5" height="5" rx="1"/><rect x="16" y="3" width="5" height="5" rx="1"/><rect x="3" y="16" width="5" height="5" rx="1"/><path d="M21 16h-3a2 2 0 0 0-2 2v3"/><line x1="21" y1="21" x2="21" y2="21"/></svg>
+    Scan QR code
+  </button>
+
+  <div id="scanner-wrap">
+    <video id="preview" playsinline autoplay muted></video>
+    <div id="scan-overlay"><div class="scan-box"></div></div>
+  </div>
+  <p id="scan-hint">Point camera at the student's QR code</p>
+
+  <div class="divider">or enter manually</div>
+
+  <label>Coupon code</label>
+  <input id="code" placeholder="KRM-XXXXXXXX" type="text" style="text-transform:uppercase;">
+
+  <button class="btn btn-redeem" id="redeem-btn" onclick="redeem()">Redeem 1 use</button>
+
+  <div class="result" id="result">
+    <div class="result-icon" id="result-icon"></div>
+    <div class="result-msg" id="result-msg"></div>
+    <div class="uses-bar" id="uses-bar" style="display:none"><div class="uses-fill" id="uses-fill"></div></div>
+    <div class="uses-text" id="uses-text"></div>
+  </div>
+</div>
+
+<script>
+const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxuf2q2BrCW2_YETu1sq64E1uI3hjEq4xfdffsiXVD8HMPgI2hfaU8tAk4rY8dAhPtpcQ/exec";
+
+let stream = null;
+let scanLoop = null;
+let scanning = false;
+
+const params = new URLSearchParams(window.location.search);
+if (params.get('code')) document.getElementById('code').value = params.get('code').toUpperCase();
+
+function toggleScanner() {
+  scanning ? stopScanner() : startScanner();
+}
+
+function startScanner() {
+  scanning = true;
+  const btn = document.getElementById('scan-btn');
+  btn.innerHTML = '⏹ Stop scanner';
+  btn.classList.add('active');
+  document.getElementById('scanner-wrap').style.display = 'block';
+  document.getElementById('scan-hint').style.display = 'block';
+  document.getElementById('result').style.display = 'none';
+
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+    .then(function(s) {
+      stream = s;
+      const video = document.getElementById('preview');
+      video.srcObject = s;
+      video.play();
+      video.addEventListener('loadedmetadata', tick);
+    })
+    .catch(function(err) {
+      alert('Camera error: ' + err.message + '\n\nPlease use the manual code entry below.');
+      stopScanner();
+    });
+}
+
+function stopScanner() {
+  scanning = false;
+  if (scanLoop) { cancelAnimationFrame(scanLoop); scanLoop = null; }
+  if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+  document.getElementById('scanner-wrap').style.display = 'none';
+  document.getElementById('scan-hint').style.display = 'none';
+  const btn = document.getElementById('scan-btn');
+  btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="5" height="5" rx="1"/><rect x="16" y="3" width="5" height="5" rx="1"/><rect x="3" y="16" width="5" height="5" rx="1"/><path d="M21 16h-3a2 2 0 0 0-2 2v3"/><line x1="21" y1="21" x2="21" y2="21"/></svg> Scan QR code';
+  btn.classList.remove('active');
+}
+
+function tick() {
+  if (!scanning) return;
+  const video = document.getElementById('preview');
+  if (video.readyState !== video.HAVE_ENOUGH_DATA) { scanLoop = requestAnimationFrame(tick); return; }
+  const canvas = document.createElement('canvas');
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext('2d').drawImage(video, 0, 0);
+  const img = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
+  const qr = jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
+  if (qr && qr.data) {
+    const match = qr.data.match(/KRM-[A-Z0-9]{8}/);
+    if (match) {
+      document.getElementById('code').value = match[0];
+      stopScanner();
+      redeem();
+      return;
+    }
+  }
+  scanLoop = requestAnimationFrame(tick);
+}
+
+function redeem() {
+  const code  = document.getElementById('code').value.trim().toUpperCase();
+  const stand = document.getElementById('stand').value.trim() || 'Unknown stand';
+  if (!code || !code.startsWith('KRM-')) {
+    alert('Please enter or scan a valid coupon code (KRM-XXXXXXXX).');
+    return;
+  }
+  const btn = document.getElementById('redeem-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Processing...';
+
+  const url = APPS_SCRIPT_URL.replace('?page=redeem','') + '?action=redeem&code=' + encodeURIComponent(code) + '&stand=' + encodeURIComponent(stand);
+
+  fetch(url, { method: 'GET' })
+    .then(r => r.json())
+    .then(function(r) {
+      btn.disabled = false;
+      btn.innerHTML = 'Redeem 1 use';
+      const el = document.getElementById('result');
+      el.style.display = 'block';
+      el.className = 'result ' + (r.ok ? 'ok' : 'fail');
+      document.getElementById('result-icon').textContent = r.ok ? '✅' : '❌';
+      document.getElementById('result-msg').textContent = r.msg;
+      if (r.ok) {
+        const bar = document.getElementById('uses-bar');
+        bar.style.display = 'block';
+        document.getElementById('uses-fill').style.width = (r.usesLeft / 10 * 100) + '%';
+        document.getElementById('uses-text').textContent = r.usesLeft + ' uses remaining out of 10';
+      } else {
+        document.getElementById('uses-bar').style.display = 'none';
+        document.getElementById('uses-text').textContent = '';
+      }
+      document.getElementById('code').value = '';
+    })
+    .catch(function(err) {
+      btn.disabled = false;
+      btn.innerHTML = 'Redeem 1 use';
+      alert('Network error. Please check your connection and try again.');
+    });
+}
+</script>
+</body>
+</html>
